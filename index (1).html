@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SignSpeak – Sign Language to Text and Voice</title>
+<meta name="description" content="Sign to the camera. Your sign appears as text and is spoken aloud in 23 languages, including Tamil, Hindi, Telugu, Kannada, Malayalam, Bengali, English and more.">
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--ink:#1a1f33;--muted:#545b70;--accent:#2f4fd1;--accent-ink:#fff;--ok:#0b8f63;--line:#d9deea;--focus:#f08c00;--fs:18px;color-scheme:light}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0d1020;--card:#171b2e;--ink:#f1f3fa;--muted:#b0b7cc;--accent:#8ea4ff;--accent-ink:#0d1020;--ok:#3fd8a5;--line:#2b3252;--focus:#ffd43b;color-scheme:dark}}
+:root[data-big="1"]{--fs:22px}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,"Noto Sans Tamil","Noto Sans Devanagari","Noto Sans Telugu","Noto Sans Kannada","Noto Sans Malayalam","Noto Sans Bengali","Noto Sans Gujarati","Noto Sans Gurmukhi","Noto Sans Arabic","Noto Sans SC","Noto Sans JP","Noto Sans KR",sans-serif;font-size:var(--fs);background:var(--bg);color:var(--ink);line-height:1.5}
+.app{max-width:1000px;margin:0 auto;padding:16px;display:grid;gap:16px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font-size:1.6rem;margin:0}
+.tagline{color:var(--muted);margin:0;font-size:.95em}
+h2{font-size:1.05rem;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px}
+.grid{display:grid;gap:16px;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr)}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+
+.pipeline{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:8px}
+.step{border:2px solid var(--line);border-radius:14px;padding:12px 8px;text-align:center;font-weight:700;color:var(--muted);transition:all .25s}
+.step small{display:block;font-weight:500;font-size:.8em}
+.step.on{border-color:var(--ok);color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.arrow{color:var(--muted);font-size:1.3em}
+@media(max-width:560px){.pipeline{grid-template-columns:1fr}.arrow{transform:rotate(90deg);justify-self:center}}
+
+.lang{display:grid;gap:6px;font-weight:700}
+select,input[type=text]{font:inherit;min-height:48px;padding:8px 12px;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
+input[type=range]{width:100%;accent-color:var(--accent);min-height:36px}
+
+.stage{position:relative;aspect-ratio:4/3;background:#0a0d18;border-radius:14px;overflow:hidden}
+.stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}
+.stage video{object-fit:cover}
+.stage .hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;color:#d6dbea;padding:24px;background:#0a0d18}
+.stage .hint[hidden]{display:none}
+
+.row{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px;align-items:center}
+button{font:inherit;font-weight:700;min-height:52px;padding:12px 20px;border:0;border-radius:14px;background:var(--accent);color:var(--accent-ink);cursor:pointer;flex:1 1 auto}
+button.secondary{background:transparent;color:var(--ink);border:2px solid var(--line)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:4px solid var(--focus);outline-offset:3px}
+
+.switch{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--bg);border:2px solid var(--line);border-radius:16px;padding:12px 16px;min-height:64px}
+.switch .t{font-weight:700}
+.switch .d{font-size:.85em;color:var(--muted)}
+.toggle{flex:0 0 auto;min-width:120px;min-height:48px;border-radius:999px;background:var(--line);color:var(--ink)}
+.toggle[aria-pressed="true"]{background:var(--ok);color:#fff}
+
+.live{text-align:center;padding:14px 0 6px}
+.live .label{color:var(--muted);font-size:.9em;text-transform:uppercase;letter-spacing:.05em}
+.live .text{font-size:2.4rem;font-weight:800;color:var(--ok);min-height:2.8rem;margin:6px 0;overflow-wrap:anywhere;line-height:1.2}
+.live .en{color:var(--muted);font-size:.95em;min-height:1.4em}
+.speaking{display:inline-flex;align-items:center;gap:8px;color:var(--muted);min-height:1.8em}
+.wave{display:inline-flex;gap:3px;align-items:center;height:18px;visibility:hidden}
+.wave i{display:block;width:4px;height:100%;background:var(--accent);border-radius:2px;animation:w .9s ease-in-out infinite}
+.wave i:nth-child(2){animation-delay:.15s}.wave i:nth-child(3){animation-delay:.3s}.wave i:nth-child(4){animation-delay:.45s}
+.speaking.on .wave{visibility:visible}
+@keyframes w{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+
+.voicebox{display:grid;gap:12px;margin-top:14px}
+.status{margin:10px 0 0;color:var(--muted);min-height:1.5em}
+.status.error{color:#c92a2a;font-weight:600}
+
+.log{list-style:none;margin:0;padding:0;max-height:340px;overflow:auto;display:grid;gap:10px}
+.msg{border-radius:14px;padding:12px 14px;background:var(--bg);border:1px solid var(--line);display:grid;gap:4px;border-left:6px solid var(--line)}
+.msg.signed{border-left-color:var(--ok)}
+.msg.typed{border-left-color:var(--accent)}
+.msg .meta{font-size:.8em;color:var(--muted)}
+.msg .text{font-size:1.1em;font-weight:600;overflow-wrap:anywhere}
+.msg button{min-height:40px;padding:6px 12px;font-size:.9em;flex:0 0 auto;justify-self:start}
+.empty{color:var(--muted);margin:0}
+
+.signs{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));margin-top:8px}
+.signs div{border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--bg);font-size:.92em}
+.signs b{color:var(--accent)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}.wave i{animation:none}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div>
+      <h1>SignSpeak</h1>
+      <p class="tagline">Sign to the camera. See it as text and hear it as voice in your language.</p>
+    </div>
+    <button type="button" class="secondary" id="bigBtn" aria-pressed="false" style="flex:0 0 auto;min-height:44px">Larger text</button>
+  </header>
+
+  <div class="card">
+    <div class="pipeline">
+      <div class="step" id="s1"><span>1. Sign</span><small>Camera sees your hand</small></div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="step" id="s2"><span>2. Text</span><small>Shown in your language</small></div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="step" id="s3"><span>3. Voice</span><small>Spoken aloud</small></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label class="lang" for="langSel">Language for text and voice
+      <select id="langSel"></select>
+    </label>
+  </div>
+
+  <div class="grid">
+    <section class="card" aria-labelledby="camTitle">
+      <h2 id="camTitle">Camera</h2>
+      <div class="stage">
+        <video id="video" playsinline muted aria-label="Your camera preview"></video>
+        <canvas id="overlay" aria-hidden="true"></canvas>
+        <div class="hint" id="hint">Press <b>&nbsp;Start camera&nbsp;</b> and allow camera access.</div>
+      </div>
+      <div class="row">
+        <button type="button" id="startBtn">Start camera</button>
+        <button type="button" id="stopBtn" class="secondary" disabled>Stop</button>
+      </div>
+      <p class="status" id="status" role="status">Camera is off.</p>
+    </section>
+
+    <section class="card" aria-labelledby="outTitle">
+      <h2 id="outTitle">Live output</h2>
+      <div class="live" aria-live="polite">
+        <div class="label">Text</div>
+        <div class="text" id="sign">—</div>
+        <div class="en" id="signEn"></div>
+        <div class="speaking" id="speaking">
+          <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span id="speakingText">Voice is ready</span>
+        </div>
+      </div>
+
+      <div class="voicebox">
+        <div class="switch">
+          <div>
+            <div class="t">Voice output</div>
+            <div class="d" id="voiceDesc">Signs are spoken aloud</div>
+          </div>
+          <button type="button" class="toggle" id="voiceToggle" aria-pressed="true">On</button>
+        </div>
+        <div class="row" style="margin:0">
+          <button type="button" class="secondary" id="repeatBtn">Speak again</button>
+          <button type="button" class="secondary" id="testBtn">Test voice</button>
+        </div>
+        <label class="lang" for="voiceSel">Voice
+          <select id="voiceSel"></select>
+        </label>
+        <label class="lang" for="rate">Speed
+          <input type="range" id="rate" min="0.5" max="1.5" step="0.1" value="1">
+        </label>
+      </div>
+    </section>
+  </div>
+
+  <div class="grid">
+    <section class="card" aria-labelledby="replyTitle">
+      <h2 id="replyTitle">Reply by typing</h2>
+      <form id="replyForm" autocomplete="off" style="display:grid;gap:10px">
+        <label for="replyIn" class="sr">Type a message to speak</label>
+        <input type="text" id="replyIn" maxlength="200" placeholder="Type here, then press Speak">
+        <div class="row" style="margin:0"><button type="submit">Speak</button></div>
+      </form>
+
+      <details style="margin-top:14px">
+        <summary style="cursor:pointer;font-weight:700;min-height:44px;display:flex;align-items:center">Signs it understands (<span id="signCount"></span>)</summary>
+        <div class="signs" id="signList"></div>
+        <p class="status">Hold a sign steady for about one second.</p>
+      </details>
+    </section>
+
+    <section class="card" aria-labelledby="logTitle">
+      <div class="row" style="margin:0 0 12px;justify-content:space-between">
+        <h2 id="logTitle" style="margin:0">Conversation</h2>
+        <button type="button" class="secondary" id="clearBtn" style="flex:0 0 auto;min-height:44px">Clear</button>
+      </div>
+      <ul class="log" id="log" aria-live="polite">
+        <li class="empty">Signs and typed replies will appear here.</li>
+      </ul>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (s) { return document.querySelector(s); };
+  var video = $("#video"), canvas = $("#overlay"), ctx = canvas.getContext("2d");
+  var signEl = $("#sign"), signEnEl = $("#signEn"), statusEl = $("#status"), logEl = $("#log"), hintEl = $("#hint");
+  var startBtn = $("#startBtn"), stopBtn = $("#stopBtn"), voiceToggle = $("#voiceToggle");
+  var voiceDesc = $("#voiceDesc"), speakingEl = $("#speaking"), speakingText = $("#speakingText");
+  var voiceSel = $("#voiceSel"), rateEl = $("#rate"), replyIn = $("#replyIn"), langSel = $("#langSel");
+  var steps = { s1: $("#s1"), s2: $("#s2"), s3: $("#s3") };
+
+  // ---------- languages ----------
+  var IN = "Indian languages", WORLD = "World languages";
+  var LANGS = [
+    { code: "en", name: "English", tag: "en-IN", grp: IN },
+    { code: "ta", name: "தமிழ் (Tamil)", tag: "ta-IN", grp: IN },
+    { code: "hi", name: "हिन्दी (Hindi)", tag: "hi-IN", grp: IN },
+    { code: "te", name: "తెలుగు (Telugu)", tag: "te-IN", grp: IN },
+    { code: "kn", name: "ಕನ್ನಡ (Kannada)", tag: "kn-IN", grp: IN },
+    { code: "ml", name: "മലയാളം (Malayalam)", tag: "ml-IN", grp: IN },
+    { code: "bn", name: "বাংলা (Bengali)", tag: "bn-IN", grp: IN },
+    { code: "mr", name: "मराठी (Marathi)", tag: "mr-IN", grp: IN },
+    { code: "gu", name: "ગુજરાતી (Gujarati)", tag: "gu-IN", grp: IN },
+    { code: "pa", name: "ਪੰਜਾਬੀ (Punjabi)", tag: "pa-IN", grp: IN },
+    { code: "ur", name: "اردو (Urdu)", tag: "ur-IN", grp: IN, rtl: true },
+    { code: "es", name: "Español (Spanish)", tag: "es-ES", grp: WORLD },
+    { code: "fr", name: "Français (French)", tag: "fr-FR", grp: WORLD },
+    { code: "de", name: "Deutsch (German)", tag: "de-DE", grp: WORLD },
+    { code: "pt", name: "Português (Portuguese)", tag: "pt-BR", grp: WORLD },
+    { code: "it", name: "Italiano (Italian)", tag: "it-IT", grp: WORLD },
+    { code: "ru", name: "Русский (Russian)", tag: "ru-RU", grp: WORLD },
+    { code: "ar", name: "العربية (Arabic)", tag: "ar-SA", grp: WORLD, rtl: true },
+    { code: "zh", name: "中文 (Chinese)", tag: "zh-CN", srv: "zh-CN", grp: WORLD },
+    { code: "ja", name: "日本語 (Japanese)", tag: "ja-JP", grp: WORLD },
+    { code: "ko", name: "한국어 (Korean)", tag: "ko-KR", grp: WORLD },
+    { code: "id", name: "Bahasa Indonesia", tag: "id-ID", grp: WORLD },
+    { code: "tr", name: "Türkçe (Turkish)", tag: "tr-TR", grp: WORLD }
+  ];
+  var langByCode = {};
+  LANGS.forEach(function (l) { langByCode[l.code] = l; });
+  var currentLang = "en";
+
+  // ---------- signs ----------
+  // Key = fingers in order thumb, index, middle, ring, pinky (1 = up, 0 = folded).
+  var SIGNS = {
+    "11111": { g: "Open palm",             en: "Hello",        ta: "வணக்கம்",          hi: "नमस्ते",          te: "నమస్కారం",        kn: "ನಮಸ್ಕಾರ",        ml: "നമസ്കാരം",       bn: "নমস্কার" },
+    "00000": { g: "Fist",                  en: "Yes",          ta: "ஆம்",             hi: "हाँ",             te: "అవును",           kn: "ಹೌದು",           ml: "അതെ",            bn: "হ্যাঁ" },
+    "10000": { g: "Thumbs up",             en: "Good",         ta: "நல்லது",          hi: "अच्छा",           te: "మంచిది",          kn: "ಒಳ್ಳೆಯದು",       ml: "നല്ലത്",         bn: "ভালো" },
+    "11001": { g: "Thumb, index, pinky",   en: "I love you",   ta: "நான் உன்னை நேசிக்கிறேன்", hi: "मैं तुमसे प्यार करता हूँ", te: "నేను నిన్ను ప్రేమిస్తున్నాను", kn: "ನಾನು ನಿನ್ನನ್ನು ಪ್ರೀತಿಸುತ್ತೇನೆ", ml: "ഞാൻ നിന്നെ സ്നേഹിക്കുന്നു", bn: "আমি তোমাকে ভালোবাসি" },
+    "01100": { g: "Index + middle",        en: "Thank you",    ta: "நன்றி",           hi: "धन्यवाद",         te: "ధన్యవాదాలు",      kn: "ಧನ್ಯವಾದಗಳು",     ml: "നന്ദി",          bn: "ধন্যবাদ" },
+    "00001": { g: "Pinky only",            en: "I / Me",       ta: "நான்",            hi: "मैं",             te: "నేను",            kn: "ನಾನು",           ml: "ഞാൻ",            bn: "আমি" },
+    "01000": { g: "Index finger",          en: "You",          ta: "நீ",              hi: "तुम",             te: "నువ్వు",          kn: "ನೀನು",           ml: "നീ",             bn: "তুমি" },
+    "10001": { g: "Thumb + pinky",         en: "Call me",      ta: "என்னை அழை",        hi: "मुझे कॉल करो",     te: "నాకు కాల్ చేయి",   kn: "ನನಗೆ ಕರೆ ಮಾಡು",   ml: "എന്നെ വിളിക്കൂ",  bn: "আমাকে ফোন করো" },
+    "11000": { g: "Thumb + index",         en: "Okay",         ta: "சரி",             hi: "ठीक है",          te: "సరే",             kn: "ಸರಿ",            ml: "ശരി",            bn: "ঠিক আছে" },
+    "01110": { g: "Index, middle, ring",   en: "Water",        ta: "தண்ணீர்",          hi: "पानी",            te: "నీళ్ళు",           kn: "ನೀರು",           ml: "വെള്ളം",          bn: "জল" },
+    "01111": { g: "Four fingers",          en: "Four",         ta: "நான்கு",           hi: "चार",             te: "నాలుగు",           kn: "ನಾಲ್ಕು",          ml: "നാല്",           bn: "চার" }
+  };
+  var signKeys = Object.keys(SIGNS);
+
+  // Extra languages. Order matches signKeys:
+  // Hello, Yes, Good, I love you, Thank you, I/Me, You, Call me, Okay, Water, Four
+  var EXTRA = {
+    mr: ["नमस्कार","हो","चांगले","मी तुझ्यावर प्रेम करतो","धन्यवाद","मी","तू","मला फोन कर","ठीक आहे","पाणी","चार"],
+    gu: ["નમસ્તે","હા","સારું","હું તને પ્રેમ કરું છું","આભાર","હું","તું","મને ફોન કર","ઠીક છે","પાણી","ચાર"],
+    pa: ["ਸਤ ਸ੍ਰੀ ਅਕਾਲ","ਹਾਂ","ਚੰਗਾ","ਮੈਂ ਤੈਨੂੰ ਪਿਆਰ ਕਰਦਾ ਹਾਂ","ਧੰਨਵਾਦ","ਮੈਂ","ਤੂੰ","ਮੈਨੂੰ ਫ਼ੋਨ ਕਰੋ","ਠੀਕ ਹੈ","ਪਾਣੀ","ਚਾਰ"],
+    ur: ["السلام علیکم","ہاں","اچھا","میں تم سے محبت کرتا ہوں","شکریہ","میں","تم","مجھے فون کرو","ٹھیک ہے","پانی","چار"],
+    es: ["Hola","Sí","Bien","Te quiero","Gracias","Yo","Tú","Llámame","Vale","Agua","Cuatro"],
+    fr: ["Bonjour","Oui","Bien","Je t'aime","Merci","Moi","Toi","Appelle-moi","D'accord","Eau","Quatre"],
+    de: ["Hallo","Ja","Gut","Ich liebe dich","Danke","Ich","Du","Ruf mich an","Okay","Wasser","Vier"],
+    pt: ["Olá","Sim","Bom","Eu te amo","Obrigado","Eu","Você","Me ligue","Tudo bem","Água","Quatro"],
+    it: ["Ciao","Sì","Bene","Ti amo","Grazie","Io","Tu","Chiamami","Va bene","Acqua","Quattro"],
+    ru: ["Привет","Да","Хорошо","Я тебя люблю","Спасибо","Я","Ты","Позвони мне","Ладно","Вода","Четыре"],
+    ar: ["مرحبا","نعم","جيد","أحبك","شكرا","أنا","أنت","اتصل بي","حسنا","ماء","أربعة"],
+    zh: ["你好","是","好","我爱你","谢谢","我","你","给我打电话","好的","水","四"],
+    ja: ["こんにちは","はい","いいね","愛してる","ありがとう","私","あなた","電話してね","オーケー","水","四"],
+    ko: ["안녕하세요","네","좋아요","사랑해요","감사합니다","나","너","전화해 줘","알겠어요","물","넷"],
+    id: ["Halo","Ya","Bagus","Aku cinta kamu","Terima kasih","Aku","Kamu","Telepon aku","Oke","Air","Empat"],
+    tr: ["Merhaba","Evet","İyi","Seni seviyorum","Teşekkürler","Ben","Sen","Beni ara","Tamam","Su","Dört"]
+  };
+  Object.keys(EXTRA).forEach(function (code) {
+    EXTRA[code].forEach(function (txt, i) { SIGNS[signKeys[i]][code] = txt; });
+  });
+
+  var lastKey = null;       // last recognized sign key, so it can be redisplayed in another language
+
+  function signText(key, lang) {
+    var s = SIGNS[key];
+    return s ? (s[lang] || s.en) : "";
+  }
+
+  // ---------- status and steps ----------
+  function setStatus(msg, isError) {
+    statusEl.textContent = msg;
+    statusEl.classList.toggle("error", !!isError);
+  }
+
+  function lightStep(key) {
+    Object.keys(steps).forEach(function (k) { steps[k].classList.toggle("on", k === key); });
+    clearTimeout(lightStep.t);
+    lightStep.t = setTimeout(function () {
+      Object.keys(steps).forEach(function (k) { steps[k].classList.remove("on"); });
+    }, 2500);
+  }
+
+  // ---------- build language and sign lists ----------
+  var groupEls = {};
+  LANGS.forEach(function (l) {
+    if (!groupEls[l.grp]) {
+      groupEls[l.grp] = document.createElement("optgroup");
+      groupEls[l.grp].label = l.grp;
+      langSel.appendChild(groupEls[l.grp]);
+    }
+    var o = document.createElement("option");
+    o.value = l.code; o.textContent = l.name;
+    o.lang = l.code;
+    groupEls[l.grp].appendChild(o);
+  });
+
+  var signList = $("#signList");
+  signKeys.forEach(function (k) {
+    var d = document.createElement("div");
+    d.innerHTML = "<b></b> → <span></span>";
+    d.querySelector("b").textContent = SIGNS[k].g;
+    d.querySelector("span").textContent = SIGNS[k].en;
+    signList.appendChild(d);
+  });
+  $("#signCount").textContent = signKeys.length;
+
+  // ---------- voice ----------
+  var hasSpeech = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+  var voiceOn = true, lastSpoken = { text: "", lang: "en" }, voices = [];
+
+  function langVoices(code) {
+    var tag = langByCode[code].tag.toLowerCase();
+    var prefix = tag.slice(0, 2);
+    return voices.filter(function (v) {
+      var vl = (v.lang || "").toLowerCase().replace("_", "-");
+      return vl === tag || vl.indexOf(prefix + "-") === 0 || vl === prefix;
+    });
+  }
+
+  function refreshVoices() {
+    if (window.SIGNSPEAK_SERVER) {
+      voiceSel.innerHTML = "";
+      var so = document.createElement("option");
+      so.textContent = "Google voice (built in, all languages)";
+      voiceSel.appendChild(so);
+      voiceSel.disabled = true;
+      return;
+    }
+    if (!hasSpeech) return;
+    voices = window.speechSynthesis.getVoices() || [];
+    if (voices.length) {
+      Array.prototype.forEach.call(langSel.options, function (o) {
+        o.textContent = langByCode[o.value].name + (langVoices(o.value).length ? "" : " – online voice");
+      });
+    }
+    var list = langVoices(currentLang);
+    voiceSel.innerHTML = "";
+    if (!list.length) {
+      var o = document.createElement("option");
+      o.textContent = "Online voice (needs internet)";
+      voiceSel.appendChild(o);
+      voiceSel.disabled = true;
+      if (voices.length) setStatus("No " + langByCode[currentLang].name + " voice is installed on this device, so an online voice will be used. It needs an internet connection.");
+      return;
+    }
+    voiceSel.disabled = false;
+    list.forEach(function (v) {
+      var o = document.createElement("option");
+      o.value = v.name;
+      o.textContent = v.name + " (" + v.lang + ")";
+      voiceSel.appendChild(o);
+    });
+  }
+
+  function pickVoice() {
+    var name = voiceSel.value;
+    var list = langVoices(currentLang);
+    return list.find(function (v) { return v.name === name; }) || list[0] || null;
+  }
+
+  if (hasSpeech) {
+    refreshVoices();
+    window.speechSynthesis.onvoiceschanged = refreshVoices;
+  } else {
+    voiceSel.disabled = true;
+    voiceDesc.textContent = "Signs are spoken aloud (online voice)";
+  }
+
+  function setSpeaking(on, text) {
+    speakingEl.classList.toggle("on", on);
+    speakingText.textContent = on ? "Speaking: " + text : "Voice is ready";
+  }
+
+  var SERVER_TTS = !!window.SIGNSPEAK_SERVER;
+  var serverAudio = new Audio();
+  serverAudio.onended = function () { setSpeaking(false); };
+  serverAudio.onerror = function () {
+    setSpeaking(false);
+    setStatus("Could not get the voice. Check the internet connection and try again.", true);
+  };
+
+  function playAudio(url, text) {
+    setSpeaking(true, text);
+    serverAudio.src = url;
+    serverAudio.playbackRate = parseFloat(rateEl.value) || 1;
+    serverAudio.play().catch(function () {
+      setSpeaking(false);
+      setStatus("Tap the page once, then press Speak again. Browsers block sound until you tap.", true);
+    });
+  }
+
+  function playServer(text, lang) {
+    playAudio("/tts?lang=" + encodeURIComponent(langByCode[lang].srv || lang) + "&text=" + encodeURIComponent(text), text);
+  }
+
+  // Online voice used when the device has no voice for the language.
+  function playOnline(text, lang) {
+    playAudio("https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=" +
+      encodeURIComponent(langByCode[lang].srv || lang) + "&q=" + encodeURIComponent(text), text);
+  }
+
+  function hasDeviceVoice(lang) { return hasSpeech && langVoices(lang).length > 0; }
+
+  function speak(text, lang) {
+    if (!text) return;
+    lastSpoken = { text: text, lang: lang };
+    if (SERVER_TTS) {
+      if (voiceOn) { serverAudio.pause(); playServer(text, lang); }
+      return;
+    }
+    if (hasSpeech) window.speechSynthesis.cancel();
+    serverAudio.pause();
+    if (!voiceOn) return;
+    if (!hasDeviceVoice(lang)) { playOnline(text, lang); return; }
+    var v = pickVoice();
+    var u = new SpeechSynthesisUtterance(text);
+    if (v) u.voice = v;
+    u.lang = langByCode[lang].tag;
+    u.rate = parseFloat(rateEl.value) || 1;
+    u.onstart = function () { setSpeaking(true, text); };
+    u.onend = function () { setSpeaking(false); };
+    u.onerror = function (e) {
+      setSpeaking(false);
+      if (e.error !== "canceled" && e.error !== "interrupted") {
+        setStatus("The voice could not speak this text. Check your device volume or voice settings.", true);
+      }
+    };
+    window.speechSynthesis.speak(u);
+  }
+
+  langSel.addEventListener("change", function () {
+    currentLang = langSel.value;
+    document.documentElement.lang = currentLang;
+    var dir = langByCode[currentLang].rtl ? "rtl" : "ltr";
+    signEl.dir = dir; signEnEl.dir = "ltr"; replyIn.dir = dir; replyIn.lang = currentLang;
+    if (lastKey) {
+      signEl.textContent = signText(lastKey, currentLang);
+      signEnEl.textContent = currentLang === "en" ? "" : SIGNS[lastKey].en;
+    }
+    refreshVoices();
+    setStatus("Language changed to " + langByCode[currentLang].name + ".");
+  });
+
+  voiceToggle.addEventListener("click", function () {
+    voiceOn = !voiceOn;
+    voiceToggle.setAttribute("aria-pressed", String(voiceOn));
+    voiceToggle.textContent = voiceOn ? "On" : "Off";
+    voiceDesc.textContent = voiceOn ? "Signs are spoken aloud" : "Signs appear as text only";
+    if (!voiceOn) { if (hasSpeech) window.speechSynthesis.cancel(); serverAudio.pause(); setSpeaking(false); }
+  });
+
+  $("#testBtn").addEventListener("click", function () {
+    var sample = { en: "Voice test. SignSpeak is ready.", ta: "குரல் சோதனை. ஸ்பீக் தயாராக உள்ளது.", hi: "आवाज़ की जाँच। स्पीकसाइन तैयार है।", te: "వాయిస్ పరీక్ష. సైన్‌స్పీక్ సిద్ధంగా ఉంది.", kn: "ಧ್ವನಿ ಪರೀಕ್ಷೆ. ಸೈನ್‌ಸ್ಪೀಕ್ ಸಿದ್ಧವಾಗಿದೆ.", ml: "ശബ്ദ പരിശോധന. സൈൻസ്പീക്ക് തയ്യാറാണ്.", bn: "ভয়েস পরীক্ষা। সাইনস্পিক প্রস্তুত।" };
+    var was = voiceOn; voiceOn = true;
+    speak(sample[currentLang] || signText("11111", currentLang), currentLang);
+    voiceOn = was;
+  });
+
+  $("#repeatBtn").addEventListener("click", function () {
+    if (lastSpoken.text) speak(lastSpoken.text, lastSpoken.lang); else setStatus("Nothing to repeat yet.");
+  });
+
+  // ---------- conversation ----------
+  var empty = true;
+  function addMessage(text, kind, lang) {
+    if (empty) { logEl.innerHTML = ""; empty = false; }
+    var li = document.createElement("li");
+    li.className = "msg " + kind;
+    var meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = (kind === "signed" ? "Signed" : "Typed") + " · " + langByCode[lang].name + " · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    var t = document.createElement("div");
+    t.className = "text";
+    t.textContent = text;
+    t.lang = lang;
+    t.dir = langByCode[lang].rtl ? "rtl" : "ltr";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "secondary";
+    btn.textContent = "Hear again";
+    btn.setAttribute("aria-label", "Hear again: " + text);
+    btn.addEventListener("click", function () { speak(text, lang); });
+    li.appendChild(meta); li.appendChild(t); li.appendChild(btn);
+    logEl.insertBefore(li, logEl.firstChild);
+  }
+
+  $("#replyForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var t = replyIn.value.trim();
+    if (!t) { setStatus("Type a message first.", true); replyIn.focus(); return; }
+    signEl.textContent = t;
+    signEnEl.textContent = "";
+    lastKey = null;
+    lightStep("s3");
+    addMessage(t, "typed", currentLang);
+    speak(t, currentLang);
+    replyIn.value = "";
+    replyIn.focus();
+  });
+
+  $("#clearBtn").addEventListener("click", function () {
+    logEl.innerHTML = '<li class="empty">Signs and typed replies will appear here.</li>';
+    empty = true;
+  });
+
+  $("#bigBtn").addEventListener("click", function () {
+    var on = document.documentElement.getAttribute("data-big") !== "1";
+    document.documentElement.setAttribute("data-big", on ? "1" : "0");
+    this.setAttribute("aria-pressed", String(on));
+    this.textContent = on ? "Normal text" : "Larger text";
+  });
+
+  // ---------- recognition ----------
+  var CONN = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+              [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  function pattern(lm) {
+    var w = lm[0];
+    function up(tip, pip) { return dist(lm[tip], w) > dist(lm[pip], w) * 1.15 ? 1 : 0; }
+    var thumb = dist(lm[4], lm[17]) > dist(lm[3], lm[17]) * 1.1 ? 1 : 0;
+    return [thumb, up(8, 6), up(12, 10), up(16, 14), up(20, 18)].join("");
+  }
+
+  function drawHand(lm) {
+    var W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = "#0b8f63"; ctx.lineWidth = 3;
+    CONN.forEach(function (c) {
+      ctx.beginPath();
+      ctx.moveTo(lm[c[0]].x * W, lm[c[0]].y * H);
+      ctx.lineTo(lm[c[1]].x * W, lm[c[1]].y * H);
+      ctx.stroke();
+    });
+    ctx.fillStyle = "#8ea4ff";
+    lm.forEach(function (p) { ctx.beginPath(); ctx.arc(p.x * W, p.y * H, 4, 0, Math.PI * 2); ctx.fill(); });
+  }
+
+  var lastPattern = null, streak = 0, emitted = null, STABLE = 12;
+  function resetTracking() { lastPattern = null; streak = 0; emitted = null; }
+
+  function onResults(r) {
+    var lm = r.multiHandLandmarks && r.multiHandLandmarks[0];
+    if (!lm) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      resetTracking();
+      return;
+    }
+    drawHand(lm);
+    var key = pattern(lm);
+    if (!SIGNS[key]) { resetTracking(); return; }
+    if (key === lastPattern) streak++; else { lastPattern = key; streak = 1; }
+    if (streak >= STABLE && key !== emitted) {
+      emitted = key;
+      lastKey = key;
+      var text = signText(key, currentLang);
+      signEl.textContent = text;
+      signEnEl.textContent = currentLang === "en" ? "" : SIGNS[key].en;
+      lightStep("s2");
+      addMessage(text, "signed", currentLang);
+      lightStep("s3");
+      speak(text, currentLang);
+    }
+  }
+
+  // ---------- camera ----------
+  var stream = null, hands = null, running = false, busy = false;
+
+  function tick() {
+    if (!running) return;
+    if (!busy && hands && video.readyState >= 2) {
+      busy = true;
+      hands.send({ image: video }).catch(function () {}).then(function () { busy = false; });
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function setRunning(on) { startBtn.disabled = on; stopBtn.disabled = !on; }
+
+  function stopStream() {
+    if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+    stream = null;
+    video.srcObject = null;
+  }
+
+  startBtn.addEventListener("click", async function () {
+    if (hasSpeech) {
+      var unlock = new SpeechSynthesisUtterance(" ");
+      unlock.volume = 0;
+      window.speechSynthesis.speak(unlock);
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus("The camera is not available in this browser. Try Chrome, Edge, or Safari.", true);
+      return;
+    }
+    setStatus("Starting camera…");
+    startBtn.disabled = true;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: "user" }, audio: false
+      });
+    } catch (err) {
+      startBtn.disabled = false;
+      setStatus("Camera access was blocked. Allow the camera in your browser settings, then try again.", true);
+      return;
+    }
+    video.srcObject = stream;
+    try { await video.play(); } catch (e) {}
+    if (video.readyState < 2) await new Promise(function (res) { video.onloadeddata = res; });
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    hintEl.hidden = true;
+
+    if (typeof window.Hands === "undefined") {
+      setStatus("Hand tracking could not load. Check your internet connection and reload the page.", true);
+      startBtn.disabled = false;
+      return;
+    }
+    if (!hands) {
+      hands = new window.Hands({
+        locateFile: function (f) { return "https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/" + f; }
+      });
+      hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.5 });
+      hands.onResults(onResults);
+    }
+    running = true;
+    setRunning(true);
+    setStatus("Camera is on. Show a sign. It will appear as text and be spoken.");
+    tick();
+  });
+
+  stopBtn.addEventListener("click", function () {
+    running = false;
+    stopStream();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    hintEl.hidden = false;
+    signEl.textContent = "—";
+    signEnEl.textContent = "";
+    lastKey = null;
+    resetTracking();
+    setRunning(false);
+    setStatus("Camera is off.");
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && running) stopBtn.click();
+  });
+  window.addEventListener("pagehide", stopStream);
+})();
+</script>
+</body>
+</html>
